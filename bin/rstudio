@@ -1,0 +1,225 @@
+#!/bin/bash
+
+printHelp() {
+	cat <<HEREDOC
+Usage: $0 [OPTIONS]
+
+  Start RStudio server.
+
+Options:
+  --home PATH            home directory inside the container.  [default: $HOME]
+  --pwd PATH             initial working directory inside the container.  [default: $PWD]
+  --r-libs-user PATH     specifies additional directories for R packages. [default: ${R_LIBS_USER:-}]
+  --help
+HEREDOC
+
+	exit "${1:-1}";
+}
+
+declare userPath="$(echo "${R_LIBS_USER:-}" | sed -e 's/:*$//')";
+declare home="$HOME";
+declare RSTUDIO_DEBUG=false;
+declare pwd="$PWD";
+
+checkNotEmpty() {
+	if [ -z "${2:-}" ]; then
+		echo -e "Missing $1 value\n";
+
+		printHelp;
+	fi;
+}
+
+while [ $# -gt 0 ]; do
+	k="$1";
+	shift;
+
+	case "$k" in
+	--home)
+		checkNotEmpty "$k" "${1:-}"
+
+		home="$1";
+		shift;;
+	--pwd)
+		checkNotEmpty "$k" "${1:-}"
+
+		pwd="$1";
+		shift;;
+	--r-libs-user)
+		checkNotEmpty "$k" "${1:-}"
+
+		userPath="$1";
+		shift;;
+	--help)
+		printHelp 0;;
+	--debug)
+		export RSTUDIO_DEBUG=true;;
+	*)
+		echo "Unknown argument: $k";
+
+		printHelp;;
+	esac;
+done;
+
+# RStudio does *not* like the PWD to be too long (not sure on exact limit, but it's significantly less than some lustre paths. 
+declare CONFIG_DIR=~/.rstudio-conf;
+mkdir -p "$CONFIG_DIR"
+
+export MY_PWD="$(mktemp -p "$CONFIG_DIR" -u)";
+
+ln -s "$pwd" "$MY_PWD";
+
+cd "$MY_PWD";
+
+export RSTUDIO_CONF="$(mktemp -p "$CONFIG_DIR" -d)";
+export RSTUDIO_LOG="$RSTUDIO_CONF/log";
+
+cleanup() {
+	cd /;
+
+	# Remove PWD symlink
+	rm -f "$MY_PWD";
+
+	rm -rf "$RSTUDIO_CONF";
+}
+
+if ! $RSTUDIO_DEBUG; then
+	trap cleanup EXIT
+fi;
+
+declare PASSWORD="$(openssl rand -base64 15)";
+
+# Determine free Port
+read LOWERPORT UPPERPORT < /proc/sys/net/ipv4/ip_local_port_range
+declare PORT="";
+while true; do
+	PORT="$(shuf -i $LOWERPORT-$UPPERPORT -n 1)";
+	cat /proc/net/tcp | grep -q ":$(printf "%04X" $PORT) " || break;
+done;
+
+declare RSERVER_CONF="$RSTUDIO_CONF/rserver.conf";
+declare SINGULARITY="$(dirname "$(which R)")/singularity.sif";
+
+cat > "$RSERVER_CONF" <<HEREDOC
+# RStudio Server Configuration File
+www-port=$PORT
+server-user=$USER
+server-pid-file=$RSTUDIO_CONF/pid
+server-data-dir=$RSTUDIO_CONF/data
+auth-none=0
+auth-timeout-minutes=0
+auth-stay-signed-in-days=30
+auth-pam-helper-path=$RSTUDIO_CONF/pam
+database-config-file=$RSTUDIO_CONF/database.conf
+secure-cookie-key-file=$RSTUDIO_CONF/cookie
+rsession-which-r=$(echo /software/hgi/installs/softpack/rstudio/.spack/linux-ubuntu22.04-x86_64_v3/gcc-11.4.0/r-*/bin/R)
+rsession-config-file=$RSTUDIO_CONF/session.conf
+HEREDOC
+
+{
+	cat <<HEREDOC
+session-save-action-default=no
+session-timeout-minutes=0
+session-timeout-suspend=0
+HEREDOC
+
+	declare rlibs="/opt/view/rlib/R";
+
+#	if [ -n "$userPath" ]; then
+#		rlibs="$rlibs:$userPath";
+#	fi;
+
+	export R_LIBS_USER="$rlibs";
+
+	echo -n "r-libs-user=$R_LIBS_USER";
+} > "$RSTUDIO_CONF/session.conf";
+
+cat > "$RSTUDIO_CONF/database.conf" <<HEREDOC
+provider=sqlite
+directory=$RSTUDIO_CONF/database
+HEREDOC
+
+	cat > "$RSTUDIO_CONF/pam" <<HEREDOC
+#!/bin/bash
+
+IFS="" read -rs PASSWORD
+
+[ "$USER" = "\${1}" ] && [ "$PASSWORD" = "\${PASSWORD}" ];
+HEREDOC
+
+if [ ! -f "$home/.config/rstudio/rstudio-prefs.json" ]; then
+	mkdir -p "$home/.config/rstudio/";
+
+	cat > "$home/.config/rstudio/rstudio-prefs.json" <<HEREDOC
+{
+	"save_workspace": "never",
+	"load_workspace": false,
+	"initial_working_directory": "~",
+	"spelling_dictionary_language": "",
+	"posix_terminal_shell": "bash"
+}
+HEREDOC
+fi;
+
+if $RSTUDIO_DEBUG; then
+	echo -e "\nDEBUG OUTPUT: $RSTUDIO_CONF\n\n" | tee -a "$RSTUDIO_LOG";
+
+	echo "HOME: $home";
+	echo "PWD: $PWD";
+	echo "R_VERSION: $R_VERSION";
+	echo;
+
+	echo "$RSERVER_CONF"
+	echo "$RSERVER_CONF" | sed -e 's/./=/g';
+	echo;
+
+	cat $RSERVER_CONF;
+	echo;
+
+	FNAME="$RSTUDIO_CONF/session.conf";
+	echo "$FNAME"
+	echo "$FNAME" | sed -e 's/./=/g';
+	echo;
+
+	cat "$FNAME";
+	echo;
+	echo;
+	FNAME="$RSTUDIO_CONF/database.conf";
+	echo "$FNAME"
+	echo "$FNAME" | sed -e 's/./=/g';
+	echo;
+
+	cat "$FNAME";
+	echo;
+	echo;
+	FNAME="$home/.config/rstudio/rstudio-prefs.json";
+	echo "$FNAME"
+	echo "$FNAME" | sed -e 's/./=/g';
+	echo;
+
+	cat "$FNAME";
+	echo;
+	echo;
+fi;
+
+chmod +x "$RSTUDIO_CONF/pam";
+
+export HOME="$home";
+export LC_ALL="C";
+export LC_COLLATE="C"
+export TZ="UTC";
+export HOSTNAME="$(hostname -A | tr -d ' ')";
+
+{
+	tee -a "$RSTUDIO_LOG" <<HEREDOC
+Point web browser to: http://$HOSTNAME:$PORT
+
+  use username: $USER
+  use password: $PASSWORD
+
+----------
+----------:$(echo "0:$USER:$PASSWORD:$(echo "http://$HOSTNAME:$PORT" | base64 | tr -d '\n'):$(echo "$HOME" | base64 | tr -d '\n')" | base64 | tr -d '\n')
+HEREDOC
+} | grep -v "^----------";
+
+echo $PATH;
+/software/hgi/installs/softpack/rstudio/.spack/linux-ubuntu22.04-x86_64_v3/gcc-11.4.0/rstudio-*/bin/rserver --config-file="$RSERVER_CONF" | tee -a "$RSTUDIO_LOG";

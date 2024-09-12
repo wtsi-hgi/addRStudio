@@ -1,0 +1,70 @@
+#!/bin/bash
+
+declare ARBASE="/software/hgi/installs/softpack/addRStudio";
+declare INSTALL_BASE="/software/hgi/installs/softpack/rstudio/.spack/linux-ubuntu22.04-x86_64_v3/gcc-11.4.0/";
+
+declare REXE="$(which R)";
+declare BASE="$(dirname "$REXE")/singularity.sif";
+declare OUTPUT="$1";
+
+help() {
+	declare exit=0;
+
+	if [ -n "${1:-}" ]; then
+		exit=1;
+
+		echo -e "$1\n";
+	fi;
+
+	cat <<HEREDOC
+Usage: $0 /path/to/outout/image.sif
+
+This program adds rstudio to the loaded SoftPack module, saving the new Singularity image in the given output file.
+HEREDOC
+
+	exit $exit;
+}
+
+if [ ! -f "$BASE" ]; then
+	help "No SoftPack module with R loaded.";
+fi;
+
+if [ "$OUTPUT" = "-h" -o "$OUTPUT" = "--help" ]; then
+	help;
+elif [ -z "$OUTPUT" -o -f "$OUTPUT" ]; then
+	help "No output image file specified or file already exists.";
+fi;
+
+declare version="$(R -e "R.version" -s)";
+declare major="$(echo "$version" | grep "^major" | sed -e 's/^[^ ]* *//' -e 's/ *$//')";
+declare minor="$(echo "$version" | grep "^minor" | sed -e 's/^[^ ]* *//' -e 's/ *$//')";
+
+declare R_VERSION="$major.$minor";
+declare R_PATH="r-4.3.1-bfwldrk76z6f52upk47zepliekn7ayqz";
+declare RSERVER_PATH="rstudio-2024.04.0-pvcozy3fjfw5j4ydi7j3gazf47n64w7g";
+
+case "$R_VERSION" in
+"3.6"|"3.6.0"|"3.6.1"|"3.6.2"|"3.6.3")
+	R_PATH="r-3.6.1-lr5l32iscxwjc66xv4vqs55kfyxqnbk7";
+	RSERVER_PATH="rstudio-2024.04.0-v5b3kvtyes7mfzew3dcrl46m25w4peqw";;
+"4.0"|"4.0.1"|"4.0.2"|"4.0.3")
+	R_PATH="r-4.0.3-mtvoxefp3hv7y2cnllkrui3yurc44xt5";
+	RSERVER_PATH="rstudio-2024.04.0-oegivlu2623umrbfwgqslosygk24djua";;
+"4.1.0")
+	R_PATH="r-4.1.0-5gc5uryd3fwthjljfe4clb6kuyn6vlxh";
+	RSERVER_PATH="rstudio-2024.04.0-ybcgmthilhwrjz57p5eeve6jmsuaierl";;
+"4.1"|"4.1.1"|"4.1.2"|"4.1.3")
+	R_PATH="r-4.1.3-faaljkukyjzv3bgqk3zc4kmf37axsk33";
+	RSERVER_PATH="rstudio-2024.04.0-wf7motz63heqioazbrsqqqd2ysoegdzk";;
+"4.2.2")
+	R_PATH="r-4.2.2-attjfhbgqd6aertwlfis62kmnkqqh3om";
+	RSERVER_PATH="rstudio-2024.04.0-l3zcwq34bdvyfw4ydgwvnzfco5vljiqc";;
+"4.2"|"4.2.3")
+	R_PATH="r-4.2.3-o7l36ehxe6dbsykz4cyei4tzywdxbiph";
+	RSERVER_PATH="rstudio-2024.04.0-do2phksin5s36a2l7x2e7jxs2kpk5r7j";;
+"4.4"|"4.4.0"|"4.4.1")
+	R_PATH="r-4.4.1-zf3d5qbxgbiqsk4ddke3fl6uluwcbqcu";
+	RSERVER_PATH="rstudio-2024.04.0-ordci3t2b3w5yvutqsc5jzzsf5tr7cnh";;
+esac;
+
+"$ARBASE"/d2s/dir2singularity -b "$BASE" -e 'PATH=/opt/rstudio/:$PATH' -o "$OUTPUT" -p "$ARBASE/bin" -p "${INSTALL_BASE}soci-4.0.2-f4igwqxeglkzgll5ldl3lqnildqnyued/" -p "${INSTALL_BASE}sqlite-3.43.2-7egypdqfrrdxkbf2zds4o4rkxnd47wwt/" -p "${INSTALL_BASE}zip-3.0-4cvgf6is23bhmllgfmqnlaun7cnjuqrw/" -p "${INSTALL_BASE}unzip-6.0-cw5vahnjqnhdsxvj3fwzht3f3ccbhmks/" -p "${INSTALL_BASE}gettext-0.22.3-ltq66wekiuczj66vmyva2puj4mbmrjef/" -p "${INSTALL_BASE}readline-8.2-7clojnhdikinks5kstq6uo7bazm6yaqr/" -p "${INSTALL_BASE}libiconv-1.17-kbgjdow6rbsxzdrjfg3eqwjxvpjih5zv/" -p "${INSTALL_BASE}icu4c-67.1-xvrp6h5wp6xbge52dinclmoxdopxor6v/" -p "${INSTALL_BASE}ncurses-6.4-vighowby4kk2yi4qzatqu2jaen5ohtq5/" -p "${INSTALL_BASE}boost-1.83.0-ugpte2erzhszosf7nnv4p2g45cvc24nk/" -p "${INSTALL_BASE}libuuid-1.0.3-fwcptc5lwr35u4iswwuexvk6ahwspemk/" -p "${INSTALL_BASE}linux-pam-1.5.3-uk6tq4vszwtzoizzyuwtgogcv3law333/" -p "${INSTALL_BASE}tclap-1.2.5-z5jfcmmw5nvhlzraxqh4hzl3fhwyj74f/" -p "${INSTALL_BASE}yaml-cpp-0.6.3-sinzpu6oh5qo4msb6rfwjkkiiuqougq3/" -p "${INSTALL_BASE}which-2.21-omcb6tpkncbbe37hsfytbvcnajkadhom/" -p "$INSTALL_BASE$R_PATH" -p "$INSTALL_BASE$RSERVER_PATH" -r "$ARBASE/bin:/opt/rstudio";
