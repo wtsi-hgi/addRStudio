@@ -35,7 +35,7 @@ elif [ -z "$OUTPUT" -o -f "$OUTPUT" ]; then
 	help "No output image file specified or file already exists.";
 fi;
 
-declare version="$(R -e "R.version" -s)";
+declare version="$(/software/singularity/3.11.4/bin/singularity run "$BASE" R -e "R.version" -s 2> /dev/null)";
 declare major="$(echo "$version" | grep "^major" | sed -e 's/^[^ ]* *//' -e 's/ *$//')";
 declare minor="$(echo "$version" | grep "^minor" | sed -e 's/^[^ ]* *//' -e 's/ *$//')";
 
